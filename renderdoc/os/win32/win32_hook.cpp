@@ -137,7 +137,14 @@ struct DllHookset
 
     for(DWORD i = 0; i < count; i++)
     {
-      OrdinalNames[ordinals[i]] = (char *)(baseAddress + names[i]);
+      // @@ANET Add bounds check to RVA. The first ordinal of kernel32.lib seems to be
+      // out-of-bounds. This became a problem after a Windows 11 update. ~JamesF 3/24/2023
+      DWORD rva = names[i];
+      if(rva < optHeader->SizeOfImage)
+      {
+        OrdinalNames[ordinals[i]] = (char *)(baseAddress + names[i]);
+      }
+      // !@@ANET
 
 #if ENABLED(VERBOSE_DEBUG_HOOK)
       RDCDEBUG("ordinal found: '%s' %u", OrdinalNames[ordinals[i]].c_str(), (uint32_t)ordinals[i]);
