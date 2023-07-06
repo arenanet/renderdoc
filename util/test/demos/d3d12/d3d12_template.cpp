@@ -22,37 +22,49 @@
  * THE SOFTWARE.
  ******************************************************************************/
 
-#include "d3d8_common.h"
-#include "d3d8_device.h"
+#include "d3d12_test.h"
 
-unsigned int RefCounter8::SoftRef(WrappedD3DDevice8 *device)
+RD_TEST(D3D12_Template, D3D12GraphicsTest)
 {
-  unsigned int ret = AddRef();
-  if(device)
-    device->SoftRef();
-  else
-    RDCWARN("No device pointer, is a deleted resource being AddRef()d?");
-  return ret;
-}
+  static constexpr const char *Description = "Blank test template to be copied & modified.";
 
-unsigned int RefCounter8::SoftRelease(WrappedD3DDevice8 *device)
-{
-  unsigned int ret = Release();
-  if(device)
-    device->SoftRelease();
-  else
-    RDCWARN("No device pointer, is a deleted resource being Release()d?");
-  return ret;
-}
+  int main()
+  {
+    // initialise, create window, create device, etc
+    if(!Init())
+      return 3;
 
-void RefCounter8::AddDeviceSoftref(WrappedD3DDevice8 *device)
-{
-  if(device)
-    device->SoftRef();
-}
+    while(Running())
+    {
+      ID3D12GraphicsCommandListPtr cmd = GetCommandBuffer();
 
-void RefCounter8::ReleaseDeviceSoftref(WrappedD3DDevice8 *device)
-{
-  if(device)
-    device->SoftRelease();
-}
+      Reset(cmd);
+
+      ID3D12ResourcePtr bb = StartUsingBackbuffer(cmd, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+      ClearRenderTargetView(cmd, BBRTV, {0.2f, 0.2f, 0.2f, 1.0f});
+
+      cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+      IASetVertexBuffer(cmd, DefaultTriVB, sizeof(DefaultA2V), 0);
+      cmd->SetPipelineState(DefaultTriPSO);
+      cmd->SetGraphicsRootSignature(DefaultTriSig);
+
+      SetMainWindowViewScissor(cmd);
+
+      OMSetRenderTargets(cmd, {BBRTV}, {});
+
+      cmd->DrawInstanced(3, 1, 0, 0);
+
+      FinishUsingBackbuffer(cmd, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+      cmd->Close();
+
+      SubmitAndPresent({cmd});
+    }
+
+    return 0;
+  }
+};
+
+REGISTER_TEST();

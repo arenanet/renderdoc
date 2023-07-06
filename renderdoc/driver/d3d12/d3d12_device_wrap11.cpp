@@ -1,7 +1,7 @@
 /******************************************************************************
  * The MIT License (MIT)
  *
- * Copyright (c) 2019-2023 Baldur Karlsson
+ * Copyright (c) 2021-2023 Baldur Karlsson
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,36 +22,39 @@
  * THE SOFTWARE.
  ******************************************************************************/
 
-#include "driver/dx/official/d3d8.h"
-#include "hooks/hooks.h"
-#include "d3d8_device.h"
+#include "d3d12_device.h"
+#include "driver/dxgi/dxgi_common.h"
+#include "d3d12_command_queue.h"
+#include "d3d12_resources.h"
 
-typedef IDirect3D8 *(WINAPI *PFN_D3D8_CREATE)(UINT);
-
-class D3D8Hook : LibraryHook
+void WrappedID3D12Device::CreateSampler2(const D3D12_SAMPLER_DESC2 *pDesc,
+                                         D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor)
 {
-public:
-  void RegisterHooks()
-  {
-    RDCLOG("Registering D3D8 hooks");
+  bool capframe = false;
 
-    LibraryHooks::RegisterLibraryHook("d3d8.dll", NULL);
-    Create8.Register("d3d8.dll", "Direct3DCreate8", Create8_hook);
+  {
+    SCOPED_READLOCK(m_CapTransitionLock);
+    capframe = IsActiveCapturing(m_State);
   }
 
-private:
-  static D3D8Hook d3d8hooks;
+  SERIALISE_TIME_CALL(m_pDevice11->CreateSampler2(pDesc, Unwrap(DestDescriptor)));
 
-  HookedFunction<PFN_D3D8_CREATE> Create8;
-
-  static IDirect3D8 *WINAPI Create8_hook(UINT SDKVersion)
+  // assume descriptors are volatile
+  if(capframe)
   {
-    RDCLOG("App creating d3d8 %x", SDKVersion);
+    DynamicDescriptorWrite write;
+    write.desc.Init(pDesc);
+    write.dest = GetWrapped(DestDescriptor);
 
-    IDirect3D8 *realD3D = d3d8hooks.Create8()(SDKVersion);
+    {
+      CACHE_THREAD_SERIALISER();
 
-    return new WrappedD3D8(realD3D);
+      SCOPED_SERIALISE_CHUNK(D3D12Chunk::Device_CreateSampler2);
+      Serialise_DynamicDescriptorWrite(ser, &write);
+
+      m_FrameCaptureRecord->AddChunk(scope.Get());
+    }
   }
-};
 
-D3D8Hook D3D8Hook::d3d8hooks;
+  GetWrapped(DestDescriptor)->Init(pDesc);
+}

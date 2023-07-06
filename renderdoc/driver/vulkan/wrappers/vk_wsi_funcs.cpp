@@ -819,18 +819,23 @@ VkResult WrappedVulkan::vkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR 
 
   m_LastSwap = ResourceId();
 
+  byte *tempMem = GetTempMemory(GetNextPatchSize(pPresentInfo->pNext));
+
   if(pPresentInfo->swapchainCount == 1)
   {
-    HandlePresent(queue, pPresentInfo, unwrappedWaitSems);
+    VkPresentInfoKHR mutableInfo = *pPresentInfo;
+
+    byte *mem = tempMem;
+    UnwrapNextChain(m_State, "VkPresentInfoKHR", mem, (VkBaseInStructure *)&mutableInfo);
+
+    HandlePresent(queue, &mutableInfo, unwrappedWaitSems);
   }
   else
   {
     VkPresentInfoKHR mutableInfo = *pPresentInfo;
 
-    {
-      byte *tempMem = GetTempMemory(GetNextPatchSize(mutableInfo.pNext));
-      CopyNextChainForPatching("VkPresentInfoKHR", tempMem, (VkBaseInStructure *)&mutableInfo);
-    }
+    byte *mem = tempMem;
+    UnwrapNextChain(m_State, "VkPresentInfoKHR", mem, (VkBaseInStructure *)&mutableInfo);
 
     mutableInfo.swapchainCount = 1;
 
@@ -888,6 +893,8 @@ VkResult WrappedVulkan::vkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR 
 
   unwrappedInfo.pWaitSemaphores = unwrappedWaitSems.data();
   unwrappedInfo.waitSemaphoreCount = (uint32_t)unwrappedWaitSems.size();
+
+  UnwrapNextChain(m_State, "VkPresentInfoKHR", tempMem, (VkBaseInStructure *)&unwrappedInfo);
 
   VkResult vkr;
   SERIALISE_TIME_CALL(vkr = ObjDisp(queue)->QueuePresentKHR(Unwrap(queue), &unwrappedInfo));
@@ -1082,6 +1089,10 @@ void WrappedVulkan::HandlePresent(VkQueue queue, const VkPresentInfoKHR *pPresen
 
       rdcstr overlayText =
           RenderDoc::Inst().GetOverlayText(RDCDriver::Vulkan, devWnd, m_FrameCounter, 0);
+
+      if(m_LastCaptureFailed > 0 && Timing::GetUnixTimestamp() - m_LastCaptureFailed < 5)
+        overlayText += StringFormat::Fmt("\nCapture failed: %s",
+                                         ResultDetails(m_LastCaptureError).Message().c_str());
 
       if(!overlayText.empty())
       {

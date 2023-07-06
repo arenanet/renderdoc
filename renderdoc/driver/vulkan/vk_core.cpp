@@ -232,6 +232,11 @@ VkCommandBuffer WrappedVulkan::GetInitStateCmd()
       VkMarkerRegion::Begin("!!!!RenderDoc Internal: ApplyInitialContents batched list",
                             initStateCurCmd);
     }
+    else
+    {
+      VkMarkerRegion::Begin("!!!!RenderDoc Internal: PrepareInitialContents batched list",
+                            initStateCurCmd);
+    }
   }
 
   initStateCurBatch++;
@@ -891,6 +896,10 @@ static const VkExtensionProperties supportedExtensions[] = {
         VK_EXT_ASTC_DECODE_MODE_EXTENSION_NAME, VK_EXT_ASTC_DECODE_MODE_SPEC_VERSION,
     },
     {
+        VK_EXT_ATTACHMENT_FEEDBACK_LOOP_DYNAMIC_STATE_EXTENSION_NAME,
+        VK_EXT_ATTACHMENT_FEEDBACK_LOOP_DYNAMIC_STATE_SPEC_VERSION,
+    },
+    {
         VK_EXT_ATTACHMENT_FEEDBACK_LOOP_LAYOUT_EXTENSION_NAME,
         VK_EXT_ATTACHMENT_FEEDBACK_LOOP_LAYOUT_SPEC_VERSION,
     },
@@ -997,6 +1006,9 @@ static const VkExtensionProperties supportedExtensions[] = {
         VK_EXT_HOST_QUERY_RESET_EXTENSION_NAME, VK_EXT_HOST_QUERY_RESET_SPEC_VERSION,
     },
     {
+        VK_EXT_IMAGE_2D_VIEW_OF_3D_EXTENSION_NAME, VK_EXT_IMAGE_2D_VIEW_OF_3D_SPEC_VERSION,
+    },
+    {
         VK_EXT_IMAGE_ROBUSTNESS_EXTENSION_NAME, VK_EXT_IMAGE_ROBUSTNESS_SPEC_VERSION,
     },
     {
@@ -1063,6 +1075,9 @@ static const VkExtensionProperties supportedExtensions[] = {
     },
     {
         VK_EXT_PRIVATE_DATA_EXTENSION_NAME, VK_EXT_PRIVATE_DATA_SPEC_VERSION,
+    },
+    {
+        VK_EXT_PROVOKING_VERTEX_EXTENSION_NAME, VK_EXT_PROVOKING_VERTEX_SPEC_VERSION,
     },
     {
         VK_EXT_QUEUE_FAMILY_FOREIGN_EXTENSION_NAME, VK_EXT_QUEUE_FAMILY_FOREIGN_SPEC_VERSION,
@@ -1863,6 +1878,8 @@ void WrappedVulkan::StartFrameCapture(DeviceOwnedWindow devWnd)
   if(!IsBackgroundCapturing(m_State))
     return;
 
+  m_CaptureFailure = false;
+
   RDCLOG("Starting capture");
 
   if(m_Queue == VK_NULL_HANDLE && m_QueueFamilyIdx != ~0U)
@@ -1930,11 +1947,8 @@ void WrappedVulkan::StartFrameCapture(DeviceOwnedWindow devWnd)
       CheckVkResult(vkr);
     }
 
+    m_PreparedNotSerialisedInitStates.clear();
     GetResourceManager()->PrepareInitialContents();
-    SubmitAndFlushImageStateBarriers(m_setupImageBarriers);
-    SubmitCmds();
-    FlushQ();
-    SubmitAndFlushImageStateBarriers(m_cleanupImageBarriers);
 
     {
       SCOPED_LOCK(m_CapDescriptorsLock);
@@ -1978,6 +1992,14 @@ bool WrappedVulkan::EndFrameCapture(DeviceOwnedWindow devWnd)
 {
   if(!IsActiveCapturing(m_State))
     return true;
+
+  if(m_CaptureFailure)
+  {
+    m_LastCaptureFailed = Timing::GetUnixTimestamp();
+    return DiscardFrameCapture(devWnd);
+  }
+
+  m_CaptureFailure = false;
 
   VkSwapchainKHR swap = VK_NULL_HANDLE;
 
@@ -2395,6 +2417,8 @@ bool WrappedVulkan::EndFrameCapture(DeviceOwnedWindow devWnd)
         it->second->Write(ser);
       }
 
+      m_FrameCaptureRecord->DeleteChunks();
+
       RDCDEBUG("Done");
     }
 
@@ -2430,6 +2454,9 @@ bool WrappedVulkan::EndFrameCapture(DeviceOwnedWindow devWnd)
   GetResourceManager()->FreeInitialContents();
 
   FreeAllMemory(MemoryScope::InitialContents);
+  for(rdcstr &fn : m_InitTempFiles)
+    FileIO::Delete(fn);
+  m_InitTempFiles.clear();
 
   return true;
 }
@@ -2438,6 +2465,8 @@ bool WrappedVulkan::DiscardFrameCapture(DeviceOwnedWindow devWnd)
 {
   if(!IsActiveCapturing(m_State))
     return true;
+
+  m_CaptureFailure = false;
 
   RDCLOG("Discarding frame capture.");
 
@@ -2484,6 +2513,9 @@ bool WrappedVulkan::DiscardFrameCapture(DeviceOwnedWindow devWnd)
   GetResourceManager()->FreeInitialContents();
 
   FreeAllMemory(MemoryScope::InitialContents);
+  for(rdcstr &fn : m_InitTempFiles)
+    FileIO::Delete(fn);
+  m_InitTempFiles.clear();
 
   return true;
 }
@@ -3693,6 +3725,10 @@ bool WrappedVulkan::ProcessChunk(ReadSerialiser &ser, VulkanChunk chunk)
     case VulkanChunk::vkSetDeviceMemoryPriorityEXT:
       return Serialise_vkSetDeviceMemoryPriorityEXT(ser, VK_NULL_HANDLE, VK_NULL_HANDLE, 0.0f);
 
+    case VulkanChunk::vkCmdSetAttachmentFeedbackLoopEnableEXT:
+      return Serialise_vkCmdSetAttachmentFeedbackLoopEnableEXT(ser, VK_NULL_HANDLE,
+                                                               VK_IMAGE_ASPECT_NONE);
+
     // chunks that are reserved but not yet serialised
     case VulkanChunk::vkResetCommandPool:
     case VulkanChunk::vkCreateDepthTargetView:
@@ -4264,8 +4300,8 @@ void WrappedVulkan::CheckErrorVkResult(VkResult vkr)
 
   if(vkr == VK_ERROR_INITIALIZATION_FAILED || vkr == VK_ERROR_DEVICE_LOST || vkr == VK_ERROR_UNKNOWN)
   {
-    SET_ERROR_RESULT(m_FatalError, ResultCode::ReplayDeviceLost,
-                     "Logging device lost fatal error for %s", ToStr(vkr).c_str());
+    SET_ERROR_RESULT(m_FatalError, ResultCode::DeviceLost, "Logging device lost fatal error for %s",
+                     ToStr(vkr).c_str());
     m_FailedReplayResult = m_FatalError;
   }
   else if(vkr == VK_ERROR_OUT_OF_HOST_MEMORY || vkr == VK_ERROR_OUT_OF_DEVICE_MEMORY)
@@ -4276,7 +4312,7 @@ void WrappedVulkan::CheckErrorVkResult(VkResult vkr)
     }
     else
     {
-      SET_ERROR_RESULT(m_FatalError, ResultCode::ReplayOutOfMemory,
+      SET_ERROR_RESULT(m_FatalError, ResultCode::OutOfMemory,
                        "Logging out of memory fatal error for %s", ToStr(vkr).c_str());
       m_FailedReplayResult = m_FatalError;
     }

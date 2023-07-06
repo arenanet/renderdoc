@@ -142,7 +142,8 @@ struct D3D12QuadOverdrawCallback : public D3D12ActionCallback
       pipeDesc.DepthStencilState.BackFace.StencilPassOp = D3D12_STENCIL_OP_KEEP;
       pipeDesc.DepthStencilState.BackFace.StencilFailOp = D3D12_STENCIL_OP_KEEP;
       pipeDesc.DepthStencilState.BackFace.StencilDepthFailOp = D3D12_STENCIL_OP_KEEP;
-      pipeDesc.DepthStencilState.StencilWriteMask = 0;
+      pipeDesc.DepthStencilState.FrontFace.StencilWriteMask = 0;
+      pipeDesc.DepthStencilState.BackFace.StencilWriteMask = 0;
 
       // disable any multisampling
       pipeDesc.SampleDesc.Count = 1;
@@ -955,7 +956,7 @@ RenderOutputSubresource D3D12Replay::GetRenderOutputSubresource(ResourceId id)
     }
   }
 
-  if(id == rs.dsv.GetResResourceId())
+  if(id == rs.dsv.GetResResourceId() && rs.dsv.GetResResourceId() != ResourceId())
   {
     FillResourceView(view, &rs.dsv);
     return RenderOutputSubresource(view.firstMip, view.firstSlice, view.numSlices);
@@ -990,10 +991,6 @@ ResourceId D3D12Replay::RenderOverlay(ResourceId texid, FloatVector clearCol, De
                                   StringFormat::Fmt("RenderOverlay %d", overlay));
 
   D3D12_RESOURCE_DESC resourceDesc = resource->GetDesc();
-
-  rdcarray<D3D12_RESOURCE_BARRIER> barriers;
-  int resType = 0;
-  GetDebugManager()->PrepareTextureSampling(resource, CompType::Float, resType, barriers);
 
   D3D12_RESOURCE_DESC overlayTexDesc;
   overlayTexDesc.Alignment = 0;
@@ -1084,43 +1081,19 @@ ResourceId D3D12Replay::RenderOverlay(ResourceId texid, FloatVector clearCol, De
 
     renderDepth->SetName(L"Overlay renderDepth");
 
-    ID3D12GraphicsCommandList *list = m_pDevice->GetNewList();
+    ID3D12GraphicsCommandListX *list = m_pDevice->GetNewList();
     if(!list)
       return ResourceId();
 
-    const rdcarray<D3D12_RESOURCE_STATES> &states =
-        m_pDevice->GetSubresourceStates(GetResID(realDepth));
+    BarrierSet barriers;
+    barriers.Configure(realDepth, m_pDevice->GetSubresourceStates(GetResID(realDepth)),
+                       BarrierSet::CopySourceAccess);
 
-    rdcarray<D3D12_RESOURCE_BARRIER> depthBarriers;
-    depthBarriers.reserve(states.size());
-    for(size_t i = 0; i < states.size(); i++)
-    {
-      D3D12_RESOURCE_BARRIER b;
-
-      // skip unneeded barriers
-      if(states[i] & D3D12_RESOURCE_STATE_COPY_SOURCE)
-        continue;
-
-      b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-      b.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-      b.Transition.pResource = realDepth;
-      b.Transition.Subresource = (UINT)i;
-      b.Transition.StateBefore = states[i];
-      b.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
-
-      depthBarriers.push_back(b);
-    }
-
-    if(!depthBarriers.empty())
-      list->ResourceBarrier((UINT)depthBarriers.size(), &depthBarriers[0]);
+    barriers.Apply(list);
 
     list->CopyResource(renderDepth, realDepth);
 
-    for(size_t i = 0; i < depthBarriers.size(); i++)
-      std::swap(depthBarriers[i].Transition.StateBefore, depthBarriers[i].Transition.StateAfter);
-
-    if(!depthBarriers.empty())
-      list->ResourceBarrier((UINT)depthBarriers.size(), &depthBarriers[0]);
+    barriers.Unapply(list);
 
     D3D12_RESOURCE_BARRIER b = {};
 
@@ -1226,8 +1199,7 @@ ResourceId D3D12Replay::RenderOverlay(ResourceId texid, FloatVector clearCol, De
       psoDesc.RasterizerState.DepthBiasClamp = D3D12_DEFAULT_DEPTH_BIAS_CLAMP;
       psoDesc.RasterizerState.SlopeScaledDepthBias = D3D12_DEFAULT_SLOPE_SCALED_DEPTH_BIAS;
       psoDesc.RasterizerState.DepthClipEnable = FALSE;
-      psoDesc.RasterizerState.MultisampleEnable = FALSE;
-      psoDesc.RasterizerState.AntialiasedLineEnable = FALSE;
+      psoDesc.RasterizerState.LineRasterizationMode = D3D12_LINE_RASTERIZATION_MODE_ALIASED;
 
       float clearColour[] = {0.0f, 0.0f, 0.0f, 0.5f};
       list->ClearRenderTargetView(rtv, clearColour, 0, NULL);
@@ -1316,8 +1288,7 @@ ResourceId D3D12Replay::RenderOverlay(ResourceId texid, FloatVector clearCol, De
       psoDesc.RasterizerState.DepthBiasClamp = D3D12_DEFAULT_DEPTH_BIAS_CLAMP;
       psoDesc.RasterizerState.SlopeScaledDepthBias = D3D12_DEFAULT_SLOPE_SCALED_DEPTH_BIAS;
       psoDesc.RasterizerState.DepthClipEnable = FALSE;
-      psoDesc.RasterizerState.MultisampleEnable = FALSE;
-      psoDesc.RasterizerState.AntialiasedLineEnable = FALSE;
+      psoDesc.RasterizerState.LineRasterizationMode = D3D12_LINE_RASTERIZATION_MODE_ALIASED;
 
       float clearColour[] = {0.0f, 0.0f, 0.0f, 0.0f};
       list->ClearRenderTargetView(rtv, clearColour, 0, NULL);
@@ -1424,8 +1395,7 @@ ResourceId D3D12Replay::RenderOverlay(ResourceId texid, FloatVector clearCol, De
       psoDesc.RasterizerState.DepthBiasClamp = D3D12_DEFAULT_DEPTH_BIAS_CLAMP;
       psoDesc.RasterizerState.SlopeScaledDepthBias = D3D12_DEFAULT_SLOPE_SCALED_DEPTH_BIAS;
       psoDesc.RasterizerState.DepthClipEnable = FALSE;
-      psoDesc.RasterizerState.MultisampleEnable = FALSE;
-      psoDesc.RasterizerState.AntialiasedLineEnable = FALSE;
+      psoDesc.RasterizerState.LineRasterizationMode = D3D12_LINE_RASTERIZATION_MODE_ALIASED;
 
       float wireClearCol[4] = {200.0f / 255.0f, 255.0f / 255.0f, 0.0f / 255.0f, 0.0f};
       list->ClearRenderTargetView(rtv, wireClearCol, 0, NULL);
@@ -1581,8 +1551,7 @@ ResourceId D3D12Replay::RenderOverlay(ResourceId texid, FloatVector clearCol, De
       psoDesc.RasterizerState.DepthBiasClamp = D3D12_DEFAULT_DEPTH_BIAS_CLAMP;
       psoDesc.RasterizerState.SlopeScaledDepthBias = D3D12_DEFAULT_SLOPE_SCALED_DEPTH_BIAS;
       psoDesc.RasterizerState.DepthClipEnable = FALSE;
-      psoDesc.RasterizerState.MultisampleEnable = FALSE;
-      psoDesc.RasterizerState.AntialiasedLineEnable = FALSE;
+      psoDesc.RasterizerState.LineRasterizationMode = D3D12_LINE_RASTERIZATION_MODE_ALIASED;
 
       psoDesc.PS.pShaderBytecode = red->GetBufferPointer();
       psoDesc.PS.BytecodeLength = red->GetBufferSize();
@@ -2163,8 +2132,7 @@ ResourceId D3D12Replay::RenderOverlay(ResourceId texid, FloatVector clearCol, De
       psoDesc.BlendState.RenderTarget[0].LogicOpEnable = FALSE;
 
       psoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
-      psoDesc.RasterizerState.MultisampleEnable = FALSE;
-      psoDesc.RasterizerState.AntialiasedLineEnable = FALSE;
+      psoDesc.RasterizerState.LineRasterizationMode = D3D12_LINE_RASTERIZATION_MODE_ALIASED;
 
       float clearColour[] = {0.0f, 0.0f, 0.0f, 0.0f};
       list->ClearRenderTargetView(rtv, clearColour, 0, NULL);

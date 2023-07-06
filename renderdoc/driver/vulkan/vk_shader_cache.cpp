@@ -952,7 +952,7 @@ void VulkanShaderCache::MakeGraphicsPipelineInfo(VkGraphicsPipelineCreateInfo &p
   if(pipeInfo.renderpass == ResourceId())
   {
     dynRenderCreate.depthAttachmentFormat = pipeInfo.depthFormat;
-    dynRenderCreate.stencilAttachmentFormat = pipeInfo.depthFormat;
+    dynRenderCreate.stencilAttachmentFormat = pipeInfo.stencilFormat;
     dynRenderCreate.colorAttachmentCount = (uint32_t)pipeInfo.colorFormats.size();
     memcpy(colFormats, pipeInfo.colorFormats.data(), pipeInfo.colorFormats.byteSize());
 
@@ -988,6 +988,18 @@ void VulkanShaderCache::MakeGraphicsPipelineInfo(VkGraphicsPipelineCreateInfo &p
 
     shadingRate.pNext = ret.pNext;
     ret.pNext = &shadingRate;
+  }
+
+  static VkPipelineRasterizationProvokingVertexStateCreateInfoEXT provokeSetup = {
+      VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_PROVOKING_VERTEX_STATE_CREATE_INFO_EXT,
+  };
+
+  if(m_pDriver->GetExtensions(GetRecord(m_Device)).ext_EXT_provoking_vertex)
+  {
+    provokeSetup.provokingVertexMode = pipeInfo.provokingVertex;
+
+    provokeSetup.pNext = rs.pNext;
+    rs.pNext = &provokeSetup;
   }
 
   // never create derivatives

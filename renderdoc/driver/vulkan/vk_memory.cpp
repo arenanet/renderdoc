@@ -280,6 +280,10 @@ MemoryAllocation WrappedVulkan::AllocateMemoryForResource(bool buffer, VkMemoryR
         break;
     }
 
+    uint64_t initStateLimitMB = RenderDoc::Inst().GetCaptureOptions().softMemoryLimit;
+    if(initStateLimitMB > 0)
+      allocSize = RDCMAX(initStateLimitMB, allocSize);
+
     uint32_t memoryTypeIndex = 0;
 
     // Upload heaps are sometimes limited in size. To prevent OOM issues, deselect any memory types
@@ -323,8 +327,11 @@ MemoryAllocation WrappedVulkan::AllocateMemoryForResource(bool buffer, VkMemoryR
     {
       // if we get an over-sized allocation, first try to immediately jump to the largest block
       // size.
-      allocSize = 256;
-      info.allocationSize = allocSize * 1024 * 1024;
+      if(initStateLimitMB == 0)
+      {
+        allocSize = 256;
+        info.allocationSize = allocSize * 1024 * 1024;
+      }
 
       // if it's still over-sized, just allocate precisely enough and give it a dedicated allocation
       if(ret.size > info.allocationSize)
@@ -401,6 +408,17 @@ MemoryAllocation WrappedVulkan::AllocateMemoryForResource(VkBuffer buf, MemorySc
   return AllocateMemoryForResource(true, mrq, scope, type);
 }
 
+uint64_t WrappedVulkan::CurMemoryUsage(MemoryScope scope)
+{
+  rdcarray<MemoryAllocation> &allocList = m_MemoryBlocks[(size_t)scope];
+
+  uint64_t ret = 0;
+  for(MemoryAllocation &alloc : allocList)
+    ret += alloc.offs;
+
+  return ret;
+}
+
 void WrappedVulkan::FreeAllMemory(MemoryScope scope)
 {
   rdcarray<MemoryAllocation> &allocList = m_MemoryBlocks[(size_t)scope];
@@ -408,15 +426,39 @@ void WrappedVulkan::FreeAllMemory(MemoryScope scope)
   if(allocList.empty())
     return;
 
-  VkDevice d = GetDev();
-
-  for(MemoryAllocation alloc : allocList)
+  // freeing a lot of memory can take a while on some implementations. Since this only needs to
+  // externally synchronise the memory we do it on a thread and synchronise if we need to free again
+  // or on device shutdown
+  if(m_MemoryFreeThread)
   {
-    ObjDisp(d)->FreeMemory(Unwrap(d), Unwrap(alloc.mem), NULL);
-    GetResourceManager()->ReleaseWrappedResource(alloc.mem);
+    Threading::JoinThread(m_MemoryFreeThread);
+    Threading::CloseThread(m_MemoryFreeThread);
+    m_MemoryFreeThread = 0;
   }
 
-  allocList.clear();
+  VkDevice d = GetDev();
+
+  rdcarray<MemoryAllocation> allocs;
+  allocs.swap(allocList);
+
+  m_MemoryFreeThread = Threading::CreateThread([this, d, allocs]() {
+    for(const MemoryAllocation &alloc : allocs)
+    {
+      ObjDisp(d)->FreeMemory(Unwrap(d), Unwrap(alloc.mem), NULL);
+      GetResourceManager()->ReleaseWrappedResource(alloc.mem);
+    }
+  });
+}
+
+void WrappedVulkan::ResetMemoryBlocks(MemoryScope scope)
+{
+  rdcarray<MemoryAllocation> &allocList = m_MemoryBlocks[(size_t)scope];
+
+  if(allocList.empty())
+    return;
+
+  for(MemoryAllocation &alloc : allocList)
+    alloc.offs = 0;
 }
 
 void WrappedVulkan::FreeMemoryAllocation(MemoryAllocation alloc)

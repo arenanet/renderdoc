@@ -35,6 +35,7 @@ struct MetalDrawableInfo
 {
   CA::MetalLayer *mtlLayer;
   WrappedMTLTexture *texture;
+  NS::UInteger drawableID;
 };
 
 class MetalCapturer : public IFrameCapturer
@@ -105,6 +106,8 @@ public:
   bool supportsFunctionPointersFromRender();
   bool supportsRaytracingFromRender();
   bool supportsPrimitiveMotionBlur();
+  bool shouldMaximizeConcurrentCompilation();
+  NS::UInteger maximumConcurrentCompilationTaskCount();
   // End of MTLDevice APIs
 
   CaptureState &GetStateRef() { return m_State; }

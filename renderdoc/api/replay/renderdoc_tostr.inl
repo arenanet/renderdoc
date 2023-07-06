@@ -63,6 +63,7 @@ rdcstr DoStringise(const ResultCode &el)
         FileIncompatibleVersion,
         "Capture file incompatible due to being made on an different major version of RenderDoc");
     STRINGISE_ENUM_CLASS_NAMED(FileCorrupted, "File is corrupted");
+    STRINGISE_ENUM_CLASS_NAMED(FileUnrecognised, "File format is unrecognised");
     STRINGISE_ENUM_CLASS_NAMED(
         ImageUnsupported, "The image file or format is unrecognised or not supported in this form");
     STRINGISE_ENUM_CLASS_NAMED(APIUnsupported, "API used in this capture is unsupported");
@@ -92,8 +93,8 @@ rdcstr DoStringise(const ResultCode &el)
     STRINGISE_ENUM_CLASS_NAMED(AndroidAPKVerifyFailed,
                                "Failed to verify installed Android remote server");
     STRINGISE_ENUM_CLASS_NAMED(RemoteServerConnectionLost, "Connection lost to remote server");
-    STRINGISE_ENUM_CLASS_NAMED(ReplayOutOfMemory, "Encountered an out of memory error");
-    STRINGISE_ENUM_CLASS_NAMED(ReplayDeviceLost, "Encountered a GPU device lost error");
+    STRINGISE_ENUM_CLASS_NAMED(OutOfMemory, "Encountered an out of memory error");
+    STRINGISE_ENUM_CLASS_NAMED(DeviceLost, "Encountered a GPU device lost error");
     STRINGISE_ENUM_CLASS_NAMED(DataNotAvailable,
                                "Data was requested through RenderDoc's API which is not available");
     STRINGISE_ENUM_CLASS_NAMED(InvalidParameter,
@@ -359,6 +360,7 @@ rdcstr DoStringise(const LineRaster &el)
     STRINGISE_ENUM_CLASS(Rectangular);
     STRINGISE_ENUM_CLASS(Bresenham);
     STRINGISE_ENUM_CLASS(RectangularSmooth);
+    STRINGISE_ENUM_CLASS(RectangularD3D);
   }
   END_ENUM_STRINGISE();
 }

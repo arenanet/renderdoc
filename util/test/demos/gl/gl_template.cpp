@@ -22,4 +22,32 @@
  * THE SOFTWARE.
  ******************************************************************************/
 
-#include "precompiled.h"
+#include "gl_test.h"
+
+RD_TEST(GL_Template, OpenGLGraphicsTest)
+{
+  static constexpr const char *Description = "Blank test template to be copied & modified.";
+
+  int main()
+  {
+    // initialise, create window, create context, etc
+    if(!Init())
+      return 3;
+
+    while(Running())
+    {
+      glClearBufferfv(GL_COLOR, 0, DefaultClearCol);
+
+      glBindVertexArray(DefaultTriVAO);
+      glUseProgram(DefaultTriProgram);
+      glViewport(0, 0, GLsizei(screenWidth), GLsizei(screenHeight));
+      glDrawArrays(GL_TRIANGLES, 0, 3);
+
+      Present();
+    }
+
+    return 0;
+  }
+};
+
+REGISTER_TEST();

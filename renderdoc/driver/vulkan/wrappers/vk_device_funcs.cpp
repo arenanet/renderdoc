@@ -955,6 +955,13 @@ void WrappedVulkan::Shutdown()
 
   FreeAllMemory(MemoryScope::InitialContents);
 
+  if(m_MemoryFreeThread)
+  {
+    Threading::JoinThread(m_MemoryFreeThread);
+    Threading::CloseThread(m_MemoryFreeThread);
+    m_MemoryFreeThread = 0;
+  }
+
   // we do more in Shutdown than the equivalent vkDestroyInstance since on replay there's
   // no explicit vkDestroyDevice, we destroy the device here then the instance
 
@@ -3080,6 +3087,31 @@ bool WrappedVulkan::Serialise_vkCreateDevice(SerialiserType &ser, VkPhysicalDevi
         CHECK_PHYS_EXT_FEATURE(minLod);
       }
       END_PHYS_EXT_CHECK();
+
+      BEGIN_PHYS_EXT_CHECK(VkPhysicalDeviceProvokingVertexFeaturesEXT,
+                           VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROVOKING_VERTEX_FEATURES_EXT);
+      {
+        CHECK_PHYS_EXT_FEATURE(provokingVertexLast);
+        CHECK_PHYS_EXT_FEATURE(transformFeedbackPreservesProvokingVertex);
+      }
+      END_PHYS_EXT_CHECK();
+
+      BEGIN_PHYS_EXT_CHECK(
+          VkPhysicalDeviceAttachmentFeedbackLoopDynamicStateFeaturesEXT,
+          VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ATTACHMENT_FEEDBACK_LOOP_DYNAMIC_STATE_FEATURES_EXT);
+      {
+        CHECK_PHYS_EXT_FEATURE(attachmentFeedbackLoopDynamicState);
+        m_DynAttachmentLoop = ext->attachmentFeedbackLoopDynamicState != VK_FALSE;
+      }
+      END_PHYS_EXT_CHECK();
+
+      BEGIN_PHYS_EXT_CHECK(VkPhysicalDeviceImage2DViewOf3DFeaturesEXT,
+                           VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_2D_VIEW_OF_3D_FEATURES_EXT);
+      {
+        CHECK_PHYS_EXT_FEATURE(image2DViewOf3D);
+        CHECK_PHYS_EXT_FEATURE(sampler2DViewOf3D);
+      }
+      END_PHYS_EXT_CHECK();
     }
 
     if(availFeatures.depthClamp)
@@ -3902,7 +3934,7 @@ VkResult WrappedVulkan::vkCreateDevice(VkPhysicalDevice physicalDevice,
   // move chain on for next layer
   layerCreateInfo->u.pLayerInfo = layerCreateInfo->u.pLayerInfo->pNext;
 
-  PFN_vkCreateDevice createFunc = (PFN_vkCreateDevice)gipa(VK_NULL_HANDLE, "vkCreateDevice");
+  PFN_vkCreateDevice createFunc = (PFN_vkCreateDevice)gipa(Unwrap(m_Instance), "vkCreateDevice");
 
   // now search again through for the loader data callback (if it exists)
   layerCreateInfo = (VkLayerDeviceCreateInfo *)pCreateInfo->pNext;
@@ -4214,6 +4246,17 @@ VkResult WrappedVulkan::vkCreateDevice(VkPhysicalDevice physicalDevice,
     m_PhysicalDeviceData.driverInfo =
         VkDriverInfo(m_PhysicalDeviceData.props, m_PhysicalDeviceData.driverProps, true);
 
+    // hack for steamdeck, set soft memory limit to 200MB if it's not specified
+    if(m_PhysicalDeviceData.driverProps.driverID == VK_DRIVER_ID_MESA_RADV &&
+       m_PhysicalDeviceData.props.vendorID == 0x1002 && m_PhysicalDeviceData.props.deviceID == 0x163F)
+    {
+      CaptureOptions opts = RenderDoc::Inst().GetCaptureOptions();
+      if(opts.softMemoryLimit == 0)
+        opts.softMemoryLimit = 200;
+      RenderDoc::Inst().SetCaptureOptions(opts);
+      RDCLOG("Forcing 200MB soft memory limit");
+    }
+
     ChooseMemoryIndices();
 
     m_PhysicalDeviceData.queueCount = (uint32_t)queueProps.size();
@@ -4236,6 +4279,13 @@ void WrappedVulkan::vkDestroyDevice(VkDevice device, const VkAllocationCallbacks
 {
   if(device == VK_NULL_HANDLE)
     return;
+
+  if(m_MemoryFreeThread)
+  {
+    Threading::JoinThread(m_MemoryFreeThread);
+    Threading::CloseThread(m_MemoryFreeThread);
+    m_MemoryFreeThread = 0;
+  }
 
   // flush out any pending commands/semaphores
   SubmitCmds();

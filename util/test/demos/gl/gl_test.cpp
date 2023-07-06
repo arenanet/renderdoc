@@ -104,6 +104,19 @@ void OpenGLGraphicsTest::PostInit()
            glGetString(GL_VERSION));
 
   swapBlitFBO = MakeFBO();
+
+  DefaultTriVB = MakeBuffer();
+  glBindBuffer(GL_ARRAY_BUFFER, DefaultTriVB);
+  glBufferData(GL_ARRAY_BUFFER, sizeof(DefaultTri), DefaultTri, GL_STATIC_DRAW);
+
+  DefaultTriVAO = MakeVAO();
+  glBindVertexArray(DefaultTriVAO);
+  ConfigureDefaultVAO();
+
+  glBindVertexArray(0);
+  glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+  DefaultTriProgram = MakeProgram(GLDefaultVertex, GLDefaultPixel);
 }
 
 void OpenGLGraphicsTest::Shutdown()

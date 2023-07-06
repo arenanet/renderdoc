@@ -31,7 +31,7 @@
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <CharacterSet>Unicode</CharacterSet>
-    <PlatformToolset>v142</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)'=='Release'" Label="Configuration">
     <WholeProgramOptimization>true</WholeProgramOptimization>
@@ -134,6 +134,7 @@
     <ClCompile Include="d3d11_shaderdebug.cpp" />
     <ClCompile Include="d3d11_stringise.cpp" />
     <ClCompile Include="d3d11_video.cpp" />
+    <ClCompile Include="d3d9_hooks.cpp" />
     <ClCompile Include="precompiled.cpp">
       <PrecompiledHeader>Create</PrecompiledHeader>
     </ClCompile>

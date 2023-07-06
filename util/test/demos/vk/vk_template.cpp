@@ -22,4 +22,46 @@
  * THE SOFTWARE.
  ******************************************************************************/
 
-#include "precompiled.h"
+#include "vk_test.h"
+
+RD_TEST(VK_Template, VulkanGraphicsTest)
+{
+  static constexpr const char *Description = "Blank test template to be copied & modified.";
+
+  int main()
+  {
+    // initialise, create window, create context, etc
+    if(!Init())
+      return 3;
+
+    while(Running())
+    {
+      VkCommandBuffer cmd = GetCommandBuffer();
+
+      vkBeginCommandBuffer(cmd, vkh::CommandBufferBeginInfo());
+
+      VkImage swapimg = StartUsingBackbuffer(cmd);
+
+      vkh::cmdClearImage(cmd, swapimg, vkh::ClearColorValue(0.2f, 0.2f, 0.2f, 1.0f));
+
+      vkCmdBeginRenderPass(cmd, mainWindow->beginRP(), VK_SUBPASS_CONTENTS_INLINE);
+
+      vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, DefaultTriPipe);
+      mainWindow->setViewScissor(cmd);
+      vkh::cmdBindVertexBuffers(cmd, {DefaultTriVB.buffer});
+      vkCmdDraw(cmd, 3, 1, 0, 0);
+
+      vkCmdEndRenderPass(cmd);
+
+      FinishUsingBackbuffer(cmd);
+
+      vkEndCommandBuffer(cmd);
+
+      SubmitAndPresent({cmd});
+    }
+
+    return 0;
+  }
+};
+
+REGISTER_TEST();

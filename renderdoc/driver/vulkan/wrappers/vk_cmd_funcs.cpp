@@ -328,6 +328,11 @@ rdcarray<VkImageMemoryBarrier> WrappedVulkan::GetImplicitRenderPassBarriers(uint
       }
     }
 
+    SanitiseOldImageLayout(barrier.oldLayout);
+    SanitiseNewImageLayout(barrier.newLayout);
+    SanitiseOldImageLayout(barrierStencil.oldLayout);
+    SanitiseNewImageLayout(barrierStencil.newLayout);
+
     // if we support separate depth stencil and the format contains stencil, add barriers
     // separately
     if(SeparateDepthStencil())
@@ -1972,7 +1977,8 @@ bool WrappedVulkan::Serialise_vkCmdBeginRenderPass(SerialiserType &ser, VkComman
               image, EventUsage(m_BakedCmdBufferInfo[m_LastCmdBufferID].curEventID,
                                 rpinfo.attachments[i].loadOp == VK_ATTACHMENT_LOAD_OP_CLEAR
                                     ? ResourceUsage::Clear
-                                    : ResourceUsage::Discard)));
+                                    : ResourceUsage::Discard,
+                                fbattachments[i])));
         }
       }
 
@@ -2626,7 +2632,8 @@ bool WrappedVulkan::Serialise_vkCmdBeginRenderPass2(SerialiserType &ser,
               image, EventUsage(m_BakedCmdBufferInfo[m_LastCmdBufferID].curEventID,
                                 rpinfo.attachments[i].loadOp == VK_ATTACHMENT_LOAD_OP_CLEAR
                                     ? ResourceUsage::Clear
-                                    : ResourceUsage::Discard)));
+                                    : ResourceUsage::Discard,
+                                fbattachments[i])));
         }
       }
 
@@ -3288,6 +3295,15 @@ bool WrappedVulkan::Serialise_vkCmdBindPipeline(SerialiserType &ser, VkCommandBu
                 renderstate.vertexBindings[i].stride = pipeInfo.vertexBindings[i].bytestride;
                 renderstate.vertexBindings[i].divisor = pipeInfo.vertexBindings[i].instanceDivisor;
               }
+            }
+            if(!pipeInfo.dynamicStates[VkDynamicAttachmentFeedbackLoopEnableEXT])
+            {
+              renderstate.feedbackAspects = VK_IMAGE_ASPECT_NONE;
+              if(pipeInfo.flags & VK_PIPELINE_CREATE_COLOR_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT)
+                renderstate.feedbackAspects |= VK_IMAGE_ASPECT_COLOR_BIT;
+              if(pipeInfo.flags & VK_PIPELINE_CREATE_DEPTH_STENCIL_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT)
+                renderstate.feedbackAspects |=
+                    VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
             }
           }
         }
@@ -7133,7 +7149,8 @@ bool WrappedVulkan::Serialise_vkCmdBeginRendering(SerialiserType &ser, VkCommand
           m_BakedCmdBufferInfo[m_LastCmdBufferID].resourceUsage.push_back(make_rdcpair(
               image, EventUsage(m_BakedCmdBufferInfo[m_LastCmdBufferID].curEventID,
                                 att->loadOp == VK_ATTACHMENT_LOAD_OP_CLEAR ? ResourceUsage::Clear
-                                                                           : ResourceUsage::Discard)));
+                                                                           : ResourceUsage::Discard,
+                                GetResID(att->imageView))));
         }
       }
 
